@@ -4,11 +4,14 @@
 # May 2021, Wolfgang Wicker <wolfgang.wicker@env.ethz.ch>
 
 import numpy as np
+import scipy.sparse as sparse
+import scipy.sparse.linalg as linalg
 
 
 # Define a Sponge class for all damping coefficients, define a Matrix class for the matrix equation
 # all damping and matrix coefficients are computed as 3D array (time,z,y)
 # stack z- and y-dimension, add all coefficients and solve the maxtrix equation A*phi=forcing
+# use scipy.sparse.linalg to solve the equation for the sparce matrix A
 # the Matrix for second order accurate centered differences contains 5 diagonals
 
 class Sponge:
@@ -65,7 +68,7 @@ class Sponge:
         yrayd = 0.5 * self.param['alampy']/86400 * yrayd
         
         coeff = zrayd[:,np.newaxis] + yrayd
-        return np.repeat(coeff[np.newaxis,:,:],self.param['nt'],axis=0)
+        return coeff[:,:]
     
     
     def alpha(self):
@@ -73,7 +76,7 @@ class Sponge:
 
         # I don't understand the z-dependent factor
         coeff = rayd + self.param['amrad'] * (0.45*np.exp(-(self.z-50000)**2/13000**2)+0.05)[:,np.newaxis]
-        return np.repeat(coeff[np.newaxis,:,:],self.param['nt'],axis=0)
+        return coeff
         
         
     def damp(self,U):
@@ -82,7 +85,7 @@ class Sponge:
         # get real part of phase speed from frequency which is given in days**(-1)
         cph = self.param['freq'] * self.param['ae'] * np.cos(self.y) / self.param['s']/86400
         
-        coeff =  1j * self.param['s'] * (U-cph-gamma) / self.param(ae) / np.cos(self.y)
+        coeff =  1j * self.param['s'] * (U-cph-gamma) / self.param['ae'] / np.cos(self.y)
         return coeff
             
               
@@ -94,7 +97,7 @@ class Matrix:
         self.param = dict(ny=47,nz=71,nt=1,
                           top=15,bottom=0,wide=90,hem=1,
                           Ho=7000,om=7.27*10**(-5),ae=6.37*10**6,
-                          Ro=287,g=9.81,kappa=0.2854)
+                          s=2)
         
         # read pairs of key and value from namelist
         # ignore lines that start with '#', use whitespaces as delimited
@@ -131,44 +134,109 @@ class Matrix:
     
     
     ## INTERIOR COEFFICIENTS
-    # need to set boundary coefficients to zero,
-    # np.pad(a, (1,1), 'constant', constant_values=(0, 0))
+    # need to set boundary coefficients to zero
     def _a5(self,qy,roN2,damp,rayd,alpha):
         '''
             Hauptdiagonale
         '''
+        coeff = 1j*self.param['s']/self.param['ae']/self.cs[:,1:-1]*qy[:,1:-1,1:-1]
+        coeff = coeff - self.param['s']**2/self.param['ae']**2/self.cs[:,1:-1] * (damp[:,1:-1,1:-1]+rayd[1:-1,1:-1])
+        coeff = coeff - ((roN2[:,2:,1:-1]+2*roN2[:,1:-1,1:-1]+roN2[:,:-2,1:-1])/2/self.delz**2 * 
+                         self.fcor[:,1:-1]**2*self.ez[1:-1,:]*(damp[:,1:-1,1:-1]+alpha[1:-1,1:-1]))
+        coeff = coeff - 2*(damp[:,1:-1,1:-1]+rayd[1:-1,1:-1])/self.dely**2/self.param['ae']**2
+        return np.pad(coeff,((0,0),(1,1),(1,1)),'constant',constant_values=(0,))
+       
         
     def _a4(self,damp,rayd):
         '''
-            Untere Nebendiagonale (1 Element nach unten, um 2 Elemente verkürzt)
+            Untere Nebendiagonale (1 Element nach unten, um 1 Elemente verkürzt)
         '''
-        
+        coeff = (damp[:,1:-1,1:-1]+rayd[1:-1,1:-1])/self.dely**2/self.param['ae']**2
+        coeff = coeff + (damp[:,1:-1,1:-1]+rayd[1:-1,1:-1])*self.sn[:,1:-1]/self.cs[:,1:-1]/self.param['ae']**2/2/self.dely
+        coeff = coeff - (rayd[1:-1,2:]-rayd[1:-1,:-2])/4/self.dely**2/self.param['ae']**2
+        return np.pad(coeff,((0,0),(1,1),(1,1)),'constant',constant_values=(0,))
+    
+    
     def _a6(self,damp,rayd):
         '''
-            Obere Nebendiagonale (1 Element nach rechts, um 2 Elemente verkürzt)
+            Obere Nebendiagonale (1 Element nach rechts, um 1 Elemente verkürzt)
         '''
+        coeff = (damp[:,1:-1,1:-1]+rayd[1:-1,1:-1])/self.dely**2/self.param['ae']**2
+        coeff = coeff - (damp[:,1:-1,1:-1]+rayd[1:-1,1:-1])*self.sn[:,1:-1]/self.cs[:,1:-1]/self.param['ae']**2/2/self.dely
+        coeff = coeff + (rayd[1:-1,2:]-rayd[1:-1,:-2])/4/self.dely**2/self.param['ae']**2
+        return np.pad(coeff,((0,0),(1,1),(1,1)),'constant',constant_values=(0,))
         
         
-        
-    def _a8(self,roN2,N,damp,alpha):
+    def _a8(self,roN2,N2,damp,alpha):
         '''
-            Nebendiagonale ny Elemente nach rechts (um 2ny Elemente verkürzt)
+            Nebendiagonale ny Elemente nach rechts (um ny Elemente verkürzt)
         '''
+        coeff = (roN2[:,1:-1,1:-1]+roN2[:,2:,1:-1])/2/self.delz**2 * (self.fcor[:,1:-1]**2 * self.ez[1:-1,:] *
+                                                                        (damp[:,1:-1,1:-1]+alpha[1:-1,1:-1]))
+        coeff = coeff + self.fcor[:,1:-1]**2/N2[:,1:-1,1:-1] * (alpha[2:,1:-1]-alpha[:-2,1:-1])/4/self.delz**2
+        return np.pad(coeff,((0,0),(1,1),(1,1)),'constant',constant_values=(0,))
         
         
-    def _a2(self,roN2,N,damp,alpha):
+    def _a2(self,roN2,N2,damp,alpha):
         '''
-            Nebendiagonale ny Elemente nach unten (um 2ny Elemente verkürzt)
+            Nebendiagonale ny Elemente nach unten (um ny Elemente verkürzt)
         '''
+        coeff = (roN2[:,1:-1,1:-1]+roN2[:,:-2,1:-1])/2/self.delz**2 * (self.fcor[:,1:-1]**2 * self.ez[1:-1,:] *
+                                                                        (damp[:,1:-1,1:-1]+alpha[1:-1,1:-1]))
+        coeff = coeff - self.fcor[:,1:-1]**2/N2[:,1:-1,1:-1] * (alpha[2:,1:-1]-alpha[:-2,1:-1])/4/self.delz**2
+        return np.pad(coeff,((0,0),(1,1),(1,1)),'constant',constant_values=(0,))
         
         
-    def stack(self,data):
-        # DAS IST FALSCH, NUR z- und y-axis werden gestacked
-        #return data.flatten() 
-       
-        # stack z- and y-dimension to (z0,y0),(z0,y1), ..., (znz,yny-1),(znz,yny)
-        # this 'C' order
-        # np.reshape(a,(nt,-1),order='C')
+    def _stack(self,data):
+        '''
+            stack z- and y-dimension to (z_0,y_0),(z_0,y_1), ..., (z_nz,y_ny-1),(z_nz,y_ny)
+            
+            data should have dimensions (nt,nz,ny)
+        '''
+        return np.reshape(data,(self.param['nt'],-1),order='C')
+    
+    
+    def A(self,qy,roN2,N2,damp,rayd,alpha):
+        '''
+            matrix A in the QG linear system
+            
+            Not sure whether I have to cut the first or the last elements$
+            
+            sparse.diags doesn't work with 2d diagonals
+        '''
+        diagonals = [self._stack(self._a2(roN2,N2,damp,alpha))[:,self.param['ny']:],
+                     self._stack(self._a4(damp,rayd))[:,1:],
+                     self._stack(self._a5(qy,roN2,damp,rayd,alpha))[:,:],
+                     self._stack(self._a6(damp,rayd))[:,:-1],
+                     self._stack(self._a8(roN2,N2,damp,alpha))[:,:-self.param['ny']],]
+        offsets = [-self.param['ny'],-1,0,1,self.param['ny']]
+        return sparse.diags(diagonals,offsets)
+    
+    
+    def solve(self,A,f):
+        '''
+            might require a phi.todense()
+        '''
+        phi = linalg.spsolve(A,f)
+        return phi
+    
+    
+    def forcing(self):
+        '''
+            Not sure about how to define the forcing
+        '''
+        f = np.zeros((self.param['nt'],self.param['nz'],self.param['ny']))
+        f[:,1,1:-1] = 1 / self.fcor[:,1:-1]
+        f = self._stack(f)
+        return f
+    
+    
+    def roN2(self,N2):
+        '''
+            squared buoancy frequency that includes the effect of density
+        '''
+        result = 1 / self.ez / N2
+        return result
         
         
         

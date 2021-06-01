@@ -3,7 +3,6 @@
 # May 2021, Wolfgang Wicker <wolfgang.wicker@env.ethz.ch>
 
 import numpy as np
-import dask.array as da
 from scipy.ndimage import convolve1d
 from scipy.interpolate import interp1d
 
@@ -28,7 +27,7 @@ class Grid:
             else:
                 l = line.strip().split(' ',1)
                 self.param.update({l[0]:int(l[1])})
-        f.close
+        f.close()
         
         # update parameters from kwargs
         self.param.update(kwargs)
