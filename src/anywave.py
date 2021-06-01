@@ -249,7 +249,159 @@ class Matrix:
         return result
         
         
+class Diagnostic:
+    def __init__(self,namelist,**kwargs):
+        # define default parameters
+        self.param = dict(ny=47,nz=71,nt=1,
+                          top=15,bottom=0,wide=90,hem=1,
+                          Ho=7000,om=7.27*10**(-5),ae=6.37*10**6,
+                          s=2)
         
+        # read pairs of key and value from namelist
+        # ignore lines that start with '#', use whitespaces as delimited
+        f = open(namelist,'r')
+        for line in f:
+            if line.startswith('#'):
+                continue
+            else:
+                l = line.strip().split(' ',1)
+                self.param.update({l[0]:int(l[1])})
+        f.close()
+        
+        # update parameters from kwargs
+        self.param.update(kwargs)
+        
+        self.delz = (self.param['top'] - self.param['bottom'])/self.param['nz']*self.param['Ho']
+        width = self.param['wide'] * np.pi / 180
+        self.dely = width / (self.param['ny']-1)
+        
+        # y-coordinate (increasing latitude)
+        if self.param['hem'] > 0: # Northern Hemisphere
+            y = np.linspace(0,width,self.param['ny'])
+        else:
+            y = np.linspace(-np.pi/2,width-np.pi/2,self.param['ny'])
+        # z-coordinate [bottom,top)
+        z = np.arange(self.param['bottom']*self.param['Ho'],self.param['top']*self.param['Ho'],self.delz)
+        
+        self.fcor = 2*self.param['om']*np.sin(y[np.newaxis,:])
+        self.sn = np.sin(y[np.newaxis,:])
+        self.cs = np.cos(y[np.newaxis,:])
+        self.ez = np.exp(z[:,np.newaxis]/self.param['Ho'])
+        
+        
+    def _fy(self,data):
+        '''
+            First y-derivative
+        '''
+        derv = lambda a: (a[:,:,2:] - a[:,:,:-2]) / 2 / self.dely
+        result = derv(np.pad(data,((0,0),(0,0),(1,1)),mode='edge'))
+        return result
+
+    def _fyy(self,data):
+        '''
+            Second second y-derivative
+        '''
+        derv = lambda a: (a[:,:,2:] + a[:,:,:-2] - 2*a[:,:,1:-1]) / self.dely / self.dely
+        result = derv(np.pad(data,((0,0),(0,0),(1,1)),mode='edge'))
+        return result
+            
+            
+    def _fz(self,data):
+        '''
+            First z-derivative 
+        '''
+        derv = lambda a: (a[:,2:,:] - a[:,:-2,:]) / 2 / self.delz
+        result = derv(np.pad(data,((0,0),(1,1),(0,0)),mode='edge'))
+        return result
+        
+            
+    def _fznz(self,data,N2):
+        '''
+            Second z-derivative taking into account density and N2 effects
+            (rho/N2*f_z)_z -> expand product rule in diff
+        '''
+        factor = self.ez / 2 / self.delz / self.delz
+        roN2 = 1 / self.ez / N2
+        
+        diff = lambda a,roN2: ((roN2[:,2:,:]+roN2[:,1:-1,:])*a[:,2:,:] - 
+                               (roN2[:,2:,:]+2*roN2[:,1:-1,:]+roN2[:,:-2,:])*a[:,1:-1,:] + 
+                               (roN2[:,1:-1,:]+roN2[:,:-2,:])*a[:,:-2,:])
+        result = diff(np.pad(data,((0,0),(1,1),(0,0)),mode='edge'),np.pad(roN2,((0,0),(1,1),(0,0)),mode='edge'))
+        result = result * factor
+        return result
+    
+    
+    def FN2(self,N2):
+        '''
+            contribution of density and N2 to the index of refraction
+        '''
+        f = np.sqrt(self.ez*N2)
+        result = self.fcor**2 / N2 * self._fznz(f,N2)
+        return result
+    
+    
+    def l2(self,phi):
+        '''
+            Meridional wavenumber squared
+        '''
+        result = - np.real((self._fyy(phi)-self.sn/self.cs*self._fy(phi))/phi)
+        result[np.isinf(result)] = 0
+        result[np.isnan(result)] = 0
+        return result
+        
+        
+    def m2(self,phi,N2):
+        '''
+            Vertical wavenumber squared
+        '''
+        psizz = np.sqrt(N2/self.ez) * (self._fznz(phi,N2)-self.FN2(N2)*phi)
+        result = - np.real(psizz/phi) * np.sqrt(self.ez * N2)
+        result[np.isinf(result)] = 0
+        result[np.isnan(result)] = 0
+        return result
+    
+    
+    def n2ref(self,phi,N2):
+        '''
+            Refractive index squared
+        '''
+        result = self.m2(phi,N2) + N2 / self.fcor**2 * self.l2(phi)
+        result[np.isnan(result)] = 0
+        return result
+        
+        
+    def amplitude(self,phi):
+        '''
+            DO I HAVE TO DIVIDE BY FCOR to get amplitude in units of geopotential height?
+        '''
+        result = np.abs(phi)
+        return result
+    
+    
+    def phase(self,phi):
+        result = np.arctan2(np.imag(phi),np.real(phi))
+        return result
+        
+        
+    def EPflux(self,phi,N2):
+        epfy = np.imag(np.conjugate(phi)*self._fy(phi)) / self.ez / 2 / self.param['ae'] * self.param['s']
+        epfz = np.imag(np.conjugate(phi)*self._fz(phi)) / self.ez / N2 * self.fcor**2  / 2 * self.param['s']
+        return epfy, epfz
+    
+    
+    def enstrophy(self,phi,N2):
+        '''
+            THIS IS STILL COMPLEX, where to take the real part?
+        '''
+        phixx = - phi * self.param['s']**2 / self.param['ae']**2 / self.cs**2
+        qprime = self.fcor**2 * self._fznz(phi,N2) + phixx 
+        qprime = qprime + self._fyy(phi) / self.param['ae']**2 + self._fy(phi) * self.sn / self.cs / self.param['ae']**2
+        result = qprime ** 2
+        return result
+    
+    
+
+
 ## PROCEDURE 
 
 # initialize model instance
@@ -261,3 +413,14 @@ class Matrix:
 # stack fields
 
 # define and solve the 2D matrix equation
+
+# compute diagnostics
+#  - zonal and meridional wavenumber using the second derivative of phi
+#  - EP flux depending on N2, phi, and the first derivative of phi
+#  - refractive index depending of qy, U, cph, N2
+#    (refractive index can also be computed from m2, l2 -> from phi)
+
+#  - wave amplitude and phase from phi
+
+#  - enstrophy & wave activity density depending on phi
+#    (remember to transform streamfunction back to geopotential height)
