@@ -59,8 +59,8 @@ class Grid:
         '''
         ps = np.max(pressure)
         zi = (-1)*np.log(pressure/ps)*self.param['Ho']
-        result = np.apply_along_axis(_interpolation,-2,data,zi,self.z,)
-                                     #shape=(self.param['nz'],),dtype=data.dtype)
+        result = np.apply_along_axis(_interpolation,-2,data,zi,self.z)
+        
         if not(nfilter is None):
             for n in range(nfilter):
                 result = _filter(result,-2)
@@ -71,7 +71,6 @@ class Grid:
             First y-derivative
         '''
         derv = lambda a: (a[:,:,2:] - a[:,:,:-2]) / 2 / self.dely
-        #result = data.map_overlap(derv,depth=1,boundary='reflect',trim=False)
         result = derv(np.pad(data,((0,0),(0,0),(1,1)),mode='edge'))
         return result
 
@@ -80,7 +79,6 @@ class Grid:
             Second second y-derivative
         '''
         derv = lambda a: (a[:,:,2:] + a[:,:,:-2] - 2*a[:,:,1:-1]) / self.dely / self.dely
-        #result = data.map_overlap(derv,depth=1,boundary='reflect',trim=False)
         result = derv(np.pad(data,((0,0),(0,0),(1,1)),mode='edge'))
         return result
             
@@ -90,7 +88,6 @@ class Grid:
             First z-derivative 
         '''
         derv = lambda a: (a[:,2:,:] - a[:,:-2,:]) / 2 / self.delz
-        #result = data.map_overlap(derv,depth=1,boundary='nearest',trim=False)
         result = derv(np.pad(data,((0,0),(1,1),(0,0)),mode='edge'))
         return result
         
@@ -107,7 +104,6 @@ class Grid:
         diff = lambda a,roN2: ((roN2[:,2:,:]+roN2[:,1:-1,:])*a[:,2:,:] - 
                                (roN2[:,2:,:]+2*roN2[:,1:-1,:]+roN2[:,:-2,:])*a[:,1:-1,:] + 
                                (roN2[:,1:-1,:]+roN2[:,:-2,:])*a[:,:-2,:])
-        #result = data.map_overlap(diff,depth=1,boundary=nearest,trim=False)
         result = diff(np.pad(data,((0,0),(1,1),(0,0)),mode='edge'),np.pad(roN2,((0,0),(1,1),(0,0)),mode='edge'))
         result = result * factor[:,np.newaxis]
         return result
@@ -134,8 +130,8 @@ def _filter(data,axis,kernel=np.array([0.25,0.5,0.25])):
     '''
         Smooth data along axis by convolution with kernel
     '''
-    result = np.apply_along_axis(convolve1d,axis,data,kernel,mode='mirror',)
-                                 #shape=(data.shape[axis],),dtype=data.dtype)
+    result = np.apply_along_axis(convolve1d,axis,data,kernel,mode='mirror')
+                    
     return result
     
     

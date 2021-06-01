@@ -1,3 +1,7 @@
 src/.ipynb_checkpoints/
 src/__pycache__/
 src/dask-worker-space/
+input/.ipynb_checkpoints
+run/.ipynb_checkpoints
+run/dask-worker-space
+input/*.nc
