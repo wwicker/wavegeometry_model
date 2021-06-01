@@ -144,7 +144,7 @@ class Matrix:
         coeff = coeff - ((roN2[:,2:,1:-1]+2*roN2[:,1:-1,1:-1]+roN2[:,:-2,1:-1])/2/self.delz**2 * 
                          self.fcor[:,1:-1]**2*self.ez[1:-1,:]*(damp[:,1:-1,1:-1]+alpha[1:-1,1:-1]))
         coeff = coeff - 2*(damp[:,1:-1,1:-1]+rayd[1:-1,1:-1])/self.dely**2/self.param['ae']**2
-        return np.pad(coeff,((0,0),(1,1),(1,1)),'constant',constant_values=(0,))
+        return np.pad(coeff,((0,0),(1,1),(1,1)),'constant',constant_values=(1,))
        
         
     def _a4(self,damp,rayd):
@@ -195,14 +195,16 @@ class Matrix:
         '''
         return np.reshape(data,(self.param['nt'],-1),order='C')
     
+    def _unstack(self,data):
+        return np.reshape(data,(self.param['nt'],self.param['nz'],self.param['ny']),order='C')
+    
     
     def A(self,qy,roN2,N2,damp,rayd,alpha):
-        '''
+        '''   
             matrix A in the QG linear system
             
-            Not sure whether I have to cut the first or the last elements$
-            
-            sparse.diags doesn't work with 2d diagonals
+            CHECK THE MATRIX EQUATION
+            Not sure whether I have to cut the first or the last elements
         '''
         diagonals = [self._stack(self._a2(roN2,N2,damp,alpha))[:,self.param['ny']:],
                      self._stack(self._a4(damp,rayd))[:,1:],
@@ -210,25 +212,33 @@ class Matrix:
                      self._stack(self._a6(damp,rayd))[:,:-1],
                      self._stack(self._a8(roN2,N2,damp,alpha))[:,:-self.param['ny']],]
         offsets = [-self.param['ny'],-1,0,1,self.param['ny']]
-        return sparse.diags(diagonals,offsets)
+        return diagonals, offsets
     
     
     def solve(self,A,f):
         '''
             might require a phi.todense()
         '''
-        phi = linalg.spsolve(A,f)
+        phi = []
+        for i in range(self.param['nt']):
+            data = [a[i,:] for a in A[0]]
+            diag = sparse.diags(data,A[1],format='csr')
+            phi.append(linalg.spsolve(diag,f))
+        phi = np.stack(phi,axis=0)
+        phi = self._unstack(phi)
         return phi
     
     
     def forcing(self):
         '''
-            Not sure about how to define the forcing
+            with the boundary values of _a5 set to 1, the forcing defines phi at the level z_0
         '''
-        f = np.zeros((self.param['nt'],self.param['nz'],self.param['ny']))
-        f[:,1,1:-1] = 1 / self.fcor[:,1:-1]
-        f = self._stack(f)
-        return f
+        # Forcing is zero everywhere apart from the lowest level
+        f = np.zeros((self.param['nz'],self.param['ny']))
+        # Meridional structure of geopotential height is set to constant 1
+        # divide by coriolis to obtain streamfunction
+        f[0,1:-1] = 1 / self.fcor[:,1:-1]
+        return f.flatten()
     
     
     def roN2(self,N2):
