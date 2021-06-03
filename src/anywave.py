@@ -140,7 +140,7 @@ class Matrix:
             Hauptdiagonale
         '''
         coeff = 1j*self.param['s']/self.param['ae']/self.cs[:,1:-1]*qy[:,1:-1,1:-1]
-        coeff = coeff - self.param['s']**2/self.param['ae']**2/self.cs[:,1:-1] * (damp[:,1:-1,1:-1]+rayd[1:-1,1:-1])
+        coeff = coeff - self.param['s']**2/self.param['ae']**2/self.cs[:,1:-1]**2 * (damp[:,1:-1,1:-1]+rayd[1:-1,1:-1])
         coeff = coeff - ((roN2[:,2:,1:-1]+2*roN2[:,1:-1,1:-1]+roN2[:,:-2,1:-1])/2/self.delz**2 * 
                          self.fcor[:,1:-1]**2*self.ez[1:-1,:]*(damp[:,1:-1,1:-1]+alpha[1:-1,1:-1]))
         coeff = coeff - 2*(damp[:,1:-1,1:-1]+rayd[1:-1,1:-1])/self.dely**2/self.param['ae']**2
@@ -255,7 +255,7 @@ class Diagnostic:
         self.param = dict(ny=47,nz=71,nt=1,
                           top=15,bottom=0,wide=90,hem=1,
                           Ho=7000,om=7.27*10**(-5),ae=6.37*10**6,
-                          s=2)
+                          s=2,freq=0)
         
         # read pairs of key and value from namelist
         # ignore lines that start with '#', use whitespaces as delimited
@@ -336,7 +336,7 @@ class Diagnostic:
             contribution of density and N2 to the index of refraction
         '''
         f = np.sqrt(self.ez*N2)
-        result = self.fcor**2 / N2 * self._fznz(f,N2)
+        result = 1 / N2 / np.sqrt(self.ez) * self._fznz(f,N2)
         return result
     
     
@@ -368,6 +368,19 @@ class Diagnostic:
         result = self.m2(phi,N2) + N2 / self.fcor**2 * self.l2(phi)
         result[np.isnan(result)] = 0
         return result
+    
+    
+    def n2ref_alt(self,N2,qy,U):
+        '''
+            Alternative formula to calculate the refractive index squared
+        '''
+        cph = self.param['freq'] * self.param['ae'] * self.cs / self.param['s']/86400
+        result = qy / (U-cph) * self.param['ae']**2
+        result = result - self.param['s']**2 / self.cs**2
+        result = result + self.FN2(N2) * self.param['ae']**2 * self.fcor**2
+        result[np.isinf(result)] = 0
+        result[np.isnan(result)] = 0
+        return result
         
         
     def amplitude(self,phi):
@@ -396,7 +409,8 @@ class Diagnostic:
         phixx = - phi * self.param['s']**2 / self.param['ae']**2 / self.cs**2
         qprime = self.fcor**2 * self._fznz(phi,N2) + phixx 
         qprime = qprime + self._fyy(phi) / self.param['ae']**2 + self._fy(phi) * self.sn / self.cs / self.param['ae']**2
-        result = qprime ** 2
+        result = np.abs(qprime) ** 2
+        result = np.real(result)
         return result
     
     
