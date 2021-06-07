@@ -16,7 +16,10 @@ class Grid:
         self.param = dict(ny=47,nz=71,nt=1,
                           top=15,bottom=0,wide=90,hem=1,
                           Ho=7000,om=7.27*10**(-5),ae=6.37*10**6,
-                          Ro=287,g=9.81,kappa=0.2854)
+                          Ro=287,g=9.81,kappa=0.2854,
+                          alheight=10.5,alscale=2.5,alamp=1.5,
+                          alwidth=15,alscaley=10,alampy=1,amrad=0,
+                         )
         
         # read pairs of key and value from namelist
         # ignore lines that start with '#', use whitespaces as delimited
@@ -46,26 +49,14 @@ class Grid:
         # time-step coordinate
         self.t = np.arange(self.param['nt'])
         
-        self.fcor = 2*self.param['om']*np.sin(self.y)
-        self.beta = 2*self.param['om']*np.cos(self.y) / self.param['ae']
+        self.fcor = 2*self.param['om']*np.sin(self.y[np.newaxis,:])
+        self.beta = 2*self.param['om']*np.cos(self.y[np.newaxis,:]) / self.param['ae']
+        self.sn = np.sin(self.y[np.newaxis,:])
+        self.cs = np.cos(self.y[np.newaxis,:])
+        self.ez = np.exp(self.z[:,np.newaxis]/self.param['Ho'])
         
-        
-    def interp2z(self,data,pressure,nfilter=None):
-        '''
-            Interpolate data from pressure-coordinates to vertical grid with constant log-pressure spacing
                 
-            pressure in Pa, assume 
-        '''
-        ps = np.max(pressure)
-        zi = (-1)*np.log(pressure/ps)*self.param['Ho']
-        result = np.apply_along_axis(_interpolation,-2,data,zi,self.z)
-        
-        if not(nfilter is None):
-            for n in range(nfilter):
-                result = _filter(result,-2)
-        return result
-                
-    def partial_y(self,data):
+    def _fy(self,data):
         '''
             First y-derivative
         '''
@@ -73,16 +64,16 @@ class Grid:
         result = derv(np.pad(data,((0,0),(0,0),(1,1)),mode='edge'))
         return result
 
-    def partial_yy(self,data):
+    def _fyy(self,data):
         '''
-            Second second y-derivative
+            Second y-derivative
         '''
         derv = lambda a: (a[:,:,2:] + a[:,:,:-2] - 2*a[:,:,1:-1]) / self.dely / self.dely
         result = derv(np.pad(data,((0,0),(0,0),(1,1)),mode='edge'))
         return result
             
             
-    def partial_z(self,data):
+    def _fz(self,data):
         '''
             First z-derivative 
         '''
@@ -91,20 +82,19 @@ class Grid:
         return result
         
             
-    def partial_zz(self,data,N2):
+    def _fznz(self,data,N2):
         '''
             Second z-derivative taking into account density and N2 effects
             (rho/N2*f_z)_z -> expand product rule in diff
         '''
-        factor = np.exp(self.z/self.param['Ho']) / 2 / self.delz / self.delz
-        rho = np.exp(-self.z/self.param['Ho'])
-        roN2 = 1 / N2 * rho[:,np.newaxis]
+        factor = self.ez / 2 / self.delz / self.delz
+        roN2 = 1 / self.ez / N2
         
         diff = lambda a,roN2: ((roN2[:,2:,:]+roN2[:,1:-1,:])*a[:,2:,:] - 
                                (roN2[:,2:,:]+2*roN2[:,1:-1,:]+roN2[:,:-2,:])*a[:,1:-1,:] + 
                                (roN2[:,1:-1,:]+roN2[:,:-2,:])*a[:,:-2,:])
         result = diff(np.pad(data,((0,0),(1,1),(0,0)),mode='edge'),np.pad(roN2,((0,0),(1,1),(0,0)),mode='edge'))
-        result = result * factor[:,np.newaxis]
+        result = result * factor
         return result
 
             
@@ -135,34 +125,48 @@ def _filter(data,axis,kernel=np.array([0.25,0.5,0.25])):
     
     
     
-## User-level functions             
+## User-level functions
 
-def buoancy_frequency(T,grid):
+def interp2z(grid,data,pressure,nfilter=None):
+    '''
+        Interpolate data from pressure-coordinates to vertical grid with constant log-pressure spacing
+            
+        pressure in Pa
+    '''
+    ps = np.max(pressure)
+    zi = (-1)*np.log(pressure/ps)*grid.param['Ho']
+    result = np.apply_along_axis(_interpolation,-2,data,zi,grid.z)
+    
+    if not(nfilter is None):
+        for n in range(nfilter):
+            result = _filter(result,-2)
+    return result
+
+    
+def buoancy_frequency(grid,T):
     '''
         Calculate buoancy frequancy N2 from zonal mean temperature
     '''
-    N2 = (grid.partial_z(T)+T*grid.param['kappa']/grid.param['Ho'])*grid.param['Ro']/grid.param['Ho']
+    N2 = (grid._fz(T)+T*grid.param['kappa']/grid.param['Ho'])*grid.param['Ro']/grid.param['Ho']
     for n in range(10):
         N2 = _filter(N2,-2)
     return N2
     
     
     
-def pv_gradient(U,N2,grid):
+def pv_gradient(grid,U,N2):
     '''
         Calculate the PV gradient from zonal-mean zonal wind
         taking into account N2 effects for the vertical derivative
     '''
     for n in range(2):
         U = _filter(U,-1)
-    tany = np.tan(grid.y)
-    cosy = np.cos(grid.y)
     
-    qy = U/cosy/cosy+grid.partial_y(U)*tany
+    qy = U/grid.cs/grid.cs+grid._fy(U)*grid.sn/grid.cs
     # division by cosy produces out-of-bounds values
     qy[:,:,0] = 0
     qy[:,:,-1]  = 0
-    qy = 1/grid.param['ae']**2 * (qy-grid.partial_yy(U)) - grid.partial_zz(U,N2)*grid.fcor*grid.fcor + grid.beta
+    qy = 1/grid.param['ae']**2 * (qy-grid._fyy(U)) - grid._fznz(U,N2)*grid.fcor*grid.fcor + grid.beta
     return qy
     
     
