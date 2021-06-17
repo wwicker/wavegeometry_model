@@ -29,7 +29,10 @@ class Grid:
                 continue
             else:
                 l = line.strip().split(' ',1)
-                self.param.update({l[0]:int(l[1])})
+                try:
+                    self.param.update({l[0]:int(l[1])})
+                except ValueError:
+                    self.param.update({l[0]:float(l[1])})
         f.close()
         
         # update parameters from kwargs
