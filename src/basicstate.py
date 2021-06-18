@@ -63,16 +63,37 @@ class Grid:
         '''
             First y-derivative
         '''
-        derv = lambda a: (a[:,:,2:] - a[:,:,:-2]) / 2 / self.dely
-        result = derv(np.pad(data,((0,0),(0,0),(1,1)),mode='edge'))
+        result = np.zeros_like(data)
+        
+        # first-order accurate
+        result[:,:,0] = data[:,:,1] - data[:,:,0]
+        result[:,:,-1] = data[:,:,-1] - data[:,:,-2]
+        # second-order accurate
+        result[:,:,1] = (data[:,:,2] - data[:,:,0]) / 2
+        result[:,:,-2] = (data[:,:,-1] - data[:,:,-3]) / 2
+        # fourth-order accurate
+        result[:,:,2:-2] = (8*data[:,:,3:-1] - data[:,:,4:] - 8*data[:,:,1:-3] + data[:,:,:-4]) / 12
+        
+        result = result / self.dely
         return result
 
     def _fyy(self,data):
         '''
             Second y-derivative
         '''
-        derv = lambda a: (a[:,:,2:] + a[:,:,:-2] - 2*a[:,:,1:-1]) / self.dely / self.dely
-        result = derv(np.pad(data,((0,0),(0,0),(1,1)),mode='edge'))
+        result = np.zeros_like(data)
+        
+        # first-order accurate
+        result[:,:,0] = data[:,:,2] - 2*data[:,:,1] + data[:,:,0] 
+        result[:,:,-1] = data[:,:,-1] - 2*data[:,:,-2] + data[:,:,-3]
+        # second-order accurate
+        result[:,:,1] = data[:,:,2] - 2*data[:,:,1] + data[:,:,0]
+        result[:,:,-2] = data[:,:,-1] - 2*data[:,:,-2] + data[:,:,-3]
+        # fourth-order accurate
+        result[:,:,2:-2] = (16*data[:,:,3:-1] - data[:,:,4:] - 30*data[:,:,2:-2] +
+                            16*data[:,:,1:-3] - data[:,:,:-4]) / 12 
+        
+        result = result / self.dely / self.dely
         return result
             
             
@@ -80,8 +101,18 @@ class Grid:
         '''
             First z-derivative 
         '''
-        derv = lambda a: (a[:,2:,:] - a[:,:-2,:]) / 2 / self.delz
-        result = derv(np.pad(data,((0,0),(1,1),(0,0)),mode='edge'))
+        result = np.zeros_like(data)
+        
+        # first-order accurate
+        result[:,0,:] = data[:,1,:] - data[:,0,:]
+        result[:,-1,:] = data[:,-1,:] - data[:,-2,:]
+        # second-order accurate
+        result[:,1,:] = (data[:,2,:] - data[:,0,:]) / 2
+        result[:,-2,:] = (data[:,-1,:] - data[:,-3,:]) / 2
+        # fourth-order accurate
+        result[:,2:-2,:] = (8*data[:,3:-1,:] - data[:,4:,:] - 8*data[:,1:-3,:] + data[:,:-4,:]) / 12
+        
+        result = result / self.delz
         return result
         
             
@@ -90,13 +121,31 @@ class Grid:
             Second z-derivative taking into account density and N2 effects
             (rho/N2*f_z)_z -> expand product rule in diff
         '''
-        factor = self.ez / 2 / self.delz / self.delz
+        factor = self.ez / self.delz / self.delz
         roN2 = 1 / self.ez / N2
+        result = np.zeros_like(data)
         
-        diff = lambda a,roN2: ((roN2[:,2:,:]+roN2[:,1:-1,:])*a[:,2:,:] - 
-                               (roN2[:,2:,:]+2*roN2[:,1:-1,:]+roN2[:,:-2,:])*a[:,1:-1,:] + 
-                               (roN2[:,1:-1,:]+roN2[:,:-2,:])*a[:,:-2,:])
-        result = diff(np.pad(data,((0,0),(1,1),(0,0)),mode='edge'),np.pad(roN2,((0,0),(1,1),(0,0)),mode='edge'))
+        # first-order accurate
+        result[:,0,:] = ((roN2[:,2,:] + roN2[:,0,:]) * data[:,2,:] -
+                     (2*roN2[:,1,:] + 2*roN2[:,0,:]) * data[:,1,:] +
+                     (2*roN2[:,1,:] - roN2[:,0,:]) * data[:,0,:]) / 2
+        result[:,-1,:] = ((roN2[:,-3,:] + roN2[:,-1,:]) * data[:,-3,:] -
+                     (2*roN2[:,-2,:] + 2*roN2[:,-1,:]) * data[:,-2,:] +
+                     (2*roN2[:,-2,:] - roN2[:,-1,:]) * data[:,-1,:]) / 2
+        # second-order accurate
+        result[:,1,:] = ((roN2[:,2,:] + roN2[:,1,:]) * data[:,2,:] - 
+                     (roN2[:,2,:] + 2*roN2[:,1,:] + roN2[:,0,:]) * data[:,1,:] +
+                     (roN2[:,1,:] + roN2[:,0,:]) * data[:,0,:]) / 2
+        result[:,-2,:] = ((roN2[:,-1,:] + roN2[:,-2,:]) * data[:,-1,:] - 
+                     (roN2[:,-1,:] + 2*roN2[:,-2,:] + roN2[:,-3,:]) * data[:,-2,:] +
+                     (roN2[:,-2,:] + roN2[:,-3,:]) * data[:,-3,:]) / 2
+        # fourth-order accurate
+        result[:,2:-2,:] = ((-roN2[:,4:,:] - roN2[:,2:-2,:]) * data[:,4:,:] +
+                        (-roN2[:,:-4,:] - roN2[:,2:-2,:]) * data[:,:-4,:] +
+                        (16*roN2[:,3:-1,:] + 16*roN2[:,2:-2,:]) * data[:,3:-1,:] +
+                        (16*roN2[:,1:-3,:] + 16*roN2[:,2:-2,:]) * data[:,1:-3,:] +
+                        (roN2[:,4:,:] + roN2[:,:-4,:] - 16*roN2[:,3:-1,:] - 16*roN2[:,1:-3,:] - 30*roN2[:,2:-2,:]) * data[:,2:-2,:]) / 24
+        
         result = result * factor
         return result
 
