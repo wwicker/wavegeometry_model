@@ -119,7 +119,7 @@ class Grid:
     def _fznz(self,data,N2):
         '''
             Second z-derivative taking into account density and N2 effects
-            (rho/N2*f_z)_z -> expand product rule in diff
+            1/rho * (rho/N2*f_z)_z -> expand product rule in diff
         '''
         factor = self.ez / self.delz / self.delz
         roN2 = 1 / self.ez / N2
@@ -200,8 +200,8 @@ def buoancy_frequency(grid,T):
         Calculate buoancy frequancy N2 from zonal mean temperature
     '''
     N2 = (grid._fz(T)+T*grid.param['kappa']/grid.param['Ho'])*grid.param['Ro']/grid.param['Ho']
-    for n in range(10):
-        N2 = _filter(N2,-2)
+    #for n in range(10):
+    #    N2 = _filter(N2,-2)
     return N2
     
     
@@ -211,8 +211,8 @@ def pv_gradient(grid,U,N2):
         Calculate the PV gradient from zonal-mean zonal wind
         taking into account N2 effects for the vertical derivative
     '''
-    for n in range(2):
-        U = _filter(U,-1)
+    #for n in range(2):
+    #    U = _filter(U,-1)
     
     qy = U/grid.cs/grid.cs+grid._fy(U)*grid.sn/grid.cs
     # division by cosy produces out-of-bounds values
