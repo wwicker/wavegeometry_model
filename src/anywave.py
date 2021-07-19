@@ -216,7 +216,7 @@ def FN2(grid,N2):
         contribution of density and N2 to the index of refraction
     '''
     f = np.sqrt(grid.ez*N2)
-    result = 1 / N2 / np.sqrt(grid.ez) * grid._fznz(f,N2)
+    result = grid.fcor**2 / np.sqrt(grid.ez*N2) * grid._fznz(f,N2)
     return result
     
     
@@ -245,7 +245,7 @@ def n2ref(grid,phi,N2):
     '''
         Refractive index squared
     '''
-    result = m2(phi,N2) + N2 / grid.fcor**2 * l2(phi)
+    result = grid.fcor**2 * grid.param['ae']**2 * m2(grid,phi,N2) + N2 * l2(grid,phi)
     result[np.isnan(result)] = 0
     return result
     
@@ -258,6 +258,7 @@ def n2ref_alt(grid,N2,qy,U,s,freq):
     result = qy / (U-cph) * grid.param['ae']**2
     result = result - s**2 / grid.cs**2
     result = result + FN2(grid,N2) * grid.param['ae']**2 * grid.fcor**2
+    #result = N2 / grid.fcor**2 / grid.param['ae']**2 * result
     result = N2 * result
     result[np.isinf(result)] = 0
     result[np.isnan(result)] = 0
