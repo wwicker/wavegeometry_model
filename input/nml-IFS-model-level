@@ -1,0 +1,17 @@
+# namelist example for eraint data
+# key value
+#
+#   meridional grid spacing of 0.28125 similar to native grid 0320
+    ny 321
+#   46 days make 9 pentads
+    nt 9
+#   gridspacing of ~400m between 4900m and 75000m
+#    nz 176
+#    top 10.75
+#   gridspacing of ~200m between 4900m and 7500m
+    nz 352
+    top 10.72
+    bottom 0.7
+    Ho 7000
+#   model top sponge from 0.5hP onwards
+    alheight 7.6
