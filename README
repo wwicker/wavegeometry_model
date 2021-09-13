@@ -1,0 +1,15 @@
+wavegeometry_model/README
+
+This repository contains a Python translation of the wavegeometry model by Nili Harnik and collegues.
+
+src/
+    basicstate.py Translates bscomp.f
+    anywave.py Translates a2comp.f
+    
+run/
+     pre-process.ipynb Notebook to compute and store basicstate from eraint netCDF files. Importantly, it makes us Grid class and user-level function interp2z, pv_gradient, and bouancy_frequency.
+     run.ipynb Notebook to solve the model. That involves loading the basic state, defining the sponge, the lower boundary condition & matrix equation, and plotting diagnostics.
+     debug.ipynb Notebook to run the model from a very smooth basic state.
+     
+input/
+    small namelist files
